@@ -343,6 +343,7 @@ export function UserDialogForm({
                 variant="primary"
                 isLoading={isSubmitting}
                 isLoadingText="Saving..."
+                className={"bg-primary"}
               >
                 {isEdit ? "Save Changes" : "Create User"}
               </LoadingButton>
