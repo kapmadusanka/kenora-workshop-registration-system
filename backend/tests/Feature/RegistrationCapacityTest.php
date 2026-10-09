@@ -11,4 +11,9 @@ class RegistrationCapacityTest extends TestCase
     // TODO: test that registering beyond capacity returns 409
     // TODO: test that a workshop with 0 seats left cannot be booked
     // TODO: test that cancelling frees a seat and allows a new registration
+
+    public function test_placeholder(): void
+    {
+        $this->markTestIncomplete('To be implemented.');
+    }
 }

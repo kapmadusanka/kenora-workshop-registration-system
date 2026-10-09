@@ -12,4 +12,9 @@ class WorkshopFilterTest extends TestCase
     // TODO: test filtering by starts_at date range
     // TODO: test scopeHasSeats only returns workshops with free seats
     // TODO: test pagination (per_page param)
+
+    public function test_placeholder(): void
+    {
+        $this->markTestIncomplete('To be implemented.');
+    }
 }

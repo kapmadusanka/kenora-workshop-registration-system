@@ -12,4 +12,9 @@ class AccessControlTest extends TestCase
     // TODO: test that manager can create workshops
     // TODO: test that staff cannot create workshops (403)
     // TODO: test that unauthenticated requests return 401
+
+    public function test_placeholder(): void
+    {
+        $this->markTestIncomplete('To be implemented.');
+    }
 }

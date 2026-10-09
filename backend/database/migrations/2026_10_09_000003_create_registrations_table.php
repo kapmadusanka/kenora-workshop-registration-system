@@ -38,17 +38,30 @@ return new class extends Migration
         // STORED generated column: holds the email when active, NULL when cancelled.
         // The unique index on (workshop_id, active_key) prevents duplicate active registrations
         // at the database level. NULL values are excluded from unique indexes in MySQL.
-        DB::statement("
-            ALTER TABLE registrations
-            ADD COLUMN active_key VARCHAR(255) AS (
-                IF(status = 'active', attendee_email, NULL)
-            ) STORED
-        ");
+        if (DB::getDriverName() === 'sqlite') {
+            DB::statement("
+                ALTER TABLE registrations
+                ADD COLUMN active_key TEXT GENERATED ALWAYS AS (
+                    CASE WHEN status = 'active' THEN attendee_email ELSE NULL END
+                ) STORED
+            ");
 
-        DB::statement('
-            ALTER TABLE registrations
-            ADD UNIQUE INDEX registrations_workshop_active_key_unique (workshop_id, active_key)
-        ');
+            DB::statement('
+                CREATE UNIQUE INDEX registrations_workshop_active_key_unique ON registrations (workshop_id, active_key)
+            ');
+        } else {
+            DB::statement("
+                ALTER TABLE registrations
+                ADD COLUMN active_key VARCHAR(255) AS (
+                    IF(status = 'active', attendee_email, NULL)
+                ) STORED
+            ");
+
+            DB::statement('
+                ALTER TABLE registrations
+                ADD UNIQUE INDEX registrations_workshop_active_key_unique (workshop_id, active_key)
+            ');
+        }
     }
 
     public function down(): void
