@@ -6,11 +6,13 @@ namespace App\Models;
 
 use App\Enums\RegistrationStatus;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Registration extends Model
 {
+    use HasFactory;
     // No SoftDeletes – registrations are NEVER deleted.
     // Cancelling sets status=cancelled, cancelled_by, cancelled_at.
 

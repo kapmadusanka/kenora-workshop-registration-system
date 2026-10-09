@@ -6,12 +6,15 @@ namespace App\Models;
 
 use App\Enums\WorkshopStatus;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Workshop extends Model
 {
+    use HasFactory;
+
     protected $fillable = [
         'code',
         'title',
@@ -59,8 +62,17 @@ class Workshop extends Model
     // Scopes
     // -----------------------------------------------------------------------
 
-    public function scopeStatus(Builder $query, string|WorkshopStatus $status): Builder
+    public function scopeStatus(Builder $query, string|WorkshopStatus|array $status): Builder
     {
+        if (is_array($status)) {
+            $values = array_map(
+                fn ($s) => $s instanceof WorkshopStatus ? $s->value : (string) $s,
+                $status
+            );
+
+            return $query->whereIn('status', $values);
+        }
+
         $value = $status instanceof WorkshopStatus ? $status->value : $status;
 
         return $query->where('status', $value);
@@ -76,6 +88,14 @@ class Workshop extends Model
      */
     public function scopeWithActiveCount(Builder $query): Builder
     {
+        $columns = $query->getQuery()->columns ?? [];
+        foreach ($columns as $column) {
+            $colStr = is_string($column) ? $column : (is_object($column) && method_exists($column, 'getValue') ? (string) $column->getValue($query->getGrammar()) : '');
+            if (str_contains($colStr, 'active_count')) {
+                return $query;
+            }
+        }
+
         return $query->withCount([
             'registrations as active_count' => fn (Builder $q) => $q->where('status', 'active'),
         ]);
@@ -83,12 +103,11 @@ class Workshop extends Model
 
     /**
      * Filters workshops that still have at least one free seat.
-     * Requires scopeWithActiveCount to be applied first, or active_count to be set.
      */
     public function scopeHasSeats(Builder $query): Builder
     {
         return $query->withActiveCount()
-            ->havingRaw('capacity > active_count');
+            ->whereRaw('capacity > (select count(*) from registrations where registrations.workshop_id = workshops.id and registrations.status = ?)', ['active']);
     }
 
     // -----------------------------------------------------------------------
@@ -102,5 +121,13 @@ class Workshop extends Model
     public function getSeatsLeftAttribute(): int
     {
         return max(0, $this->capacity - (int) ($this->active_count ?? 0));
+    }
+
+    /**
+     * Returns true if there are no remaining seats.
+     */
+    public function getIsFullAttribute(): bool
+    {
+        return ((int) ($this->active_count ?? 0)) >= $this->capacity;
     }
 }

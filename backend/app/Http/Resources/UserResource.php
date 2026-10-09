@@ -23,6 +23,11 @@ class UserResource extends JsonResource
             'email' => $this->email,
             'role' => $this->role instanceof BackedEnum ? $this->role->value : (string) $this->role,
             'is_active' => (bool) $this->is_active,
+            'created_at' => $this->when(! $request->is('api/auth/*'), fn () => $this->created_at?->toISOString()),
+            'created_by' => $this->whenLoaded('createdBy', fn () => $this->createdBy ? [
+                'id' => $this->createdBy->id,
+                'name' => $this->createdBy->name,
+            ] : null),
         ];
     }
 }
