@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\AuditLogController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\RegistrationController;
 use App\Http\Controllers\UserController;
@@ -22,6 +23,7 @@ Route::middleware(['auth:sanctum', 'active', 'role:admin'])->group(function (): 
     Route::post('/users', [UserController::class, 'store']);
     Route::get('/users/{user}', [UserController::class, 'show']);
     Route::patch('/users/{user}', [UserController::class, 'update']);
+    Route::get('/audit-logs', [AuditLogController::class, 'index']);
 });
 
 Route::middleware(['auth:sanctum', 'active'])->group(function (): void {

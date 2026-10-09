@@ -4,6 +4,7 @@ import { getSession } from "next-auth/react";
 export interface ApiError {
   statusCode: number;
   message: string;
+  code?: string;
   errors?: Record<string, string[]>;
   timestamp: string;
 }
@@ -57,15 +58,17 @@ apiClient.interceptors.request.use(
 apiClient.interceptors.response.use(
   (response) => response,
   async (
-    error: AxiosError<{ message?: string; errors?: Record<string, string[]> }>
+    error: AxiosError<{ message?: string; errors?: Record<string, string[]>; code?: string }>
   ) => {
+    const data = error.response?.data;
     const apiError: ApiError = {
       statusCode: error.response?.status ?? 500,
       message:
-        error.response?.data?.message ??
+        data?.message ??
         error.message ??
         "An unexpected network or server error occurred.",
-      errors: error.response?.data?.errors,
+      code: data?.code,
+      errors: data?.errors,
       timestamp: new Date().toISOString(),
     };
 

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Enums\AuditAction;
 use App\Enums\Role;
 use App\Models\User;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -13,6 +14,10 @@ use Illuminate\Validation\ValidationException;
 
 class UserService
 {
+    public function __construct(
+        private readonly AuditService $auditService
+    ) {}
+
     /**
      * List users with optional filters, sorted by name, paginated.
      *
@@ -57,14 +62,24 @@ class UserService
      */
     public function create(array $data, User $creator): User
     {
-        $data['password'] = Hash::make((string) $data['password']);
-        $data['created_by'] = $creator->id;
-        $data['is_active'] = $data['is_active'] ?? true;
+        return DB::transaction(function () use ($data, $creator): User {
+            $data['password'] = Hash::make((string) $data['password']);
+            $data['created_by'] = $creator->id;
+            $data['is_active'] = $data['is_active'] ?? true;
 
-        $user = User::create($data);
-        $user->load('createdBy');
+            $user = User::create($data);
+            $user->load('createdBy');
 
-        return $user;
+            $this->auditService->log(
+                AuditAction::UserCreated,
+                $user,
+                null,
+                $user->only(['name', 'email', 'role', 'is_active', 'created_by']),
+                $creator
+            );
+
+            return $user;
+        });
     }
 
     /**
@@ -98,20 +113,34 @@ class UserService
         }
 
         // 2. Lockout protection & update within transaction with locked rows
-        return DB::transaction(function () use ($targetUser, $data): User {
+        return DB::transaction(function () use ($targetUser, $data, $actor): User {
             /** @var User $target */
             $target = User::where('id', $targetUser->id)->lockForUpdate()->firstOrFail();
+
+            $oldRole = $target->role;
+            $oldActive = (bool) $target->is_active;
+            $oldName = $target->name;
+            $oldEmail = $target->email;
 
             $isTargetAdmin = $target->isAdmin();
             $isDeactivating = array_key_exists('is_active', $data)
                 && ! filter_var($data['is_active'], FILTER_VALIDATE_BOOLEAN)
                 && $target->is_active;
 
+            $isActivating = array_key_exists('is_active', $data)
+                && filter_var($data['is_active'], FILTER_VALIDATE_BOOLEAN)
+                && ! $target->is_active;
+
             $isDemoting = false;
+            $roleChanged = false;
+            $newRole = null;
             if (isset($data['role'])) {
                 $newRole = $data['role'] instanceof Role ? $data['role'] : Role::tryFrom((string) $data['role']);
-                if ($newRole !== null && $newRole !== Role::Admin && $target->isAdmin()) {
-                    $isDemoting = true;
+                if ($newRole !== null && $newRole !== $target->role) {
+                    $roleChanged = true;
+                    if ($newRole !== Role::Admin && $target->isAdmin()) {
+                        $isDemoting = true;
+                    }
                 }
             }
 
@@ -136,15 +165,14 @@ class UserService
                 $shouldRevokeTokens = true;
             }
 
-            if (isset($data['role'])) {
-                $newRole = $data['role'] instanceof Role ? $data['role'] : Role::tryFrom((string) $data['role']);
-                if ($newRole !== null && $newRole !== $target->role) {
-                    $shouldRevokeTokens = true;
-                }
+            if ($roleChanged) {
+                $shouldRevokeTokens = true;
             }
 
+            $passwordReset = false;
             if (! empty($data['password'])) {
                 $shouldRevokeTokens = true;
+                $passwordReset = true;
                 $data['password'] = Hash::make((string) $data['password']);
             }
 
@@ -156,6 +184,69 @@ class UserService
             }
 
             $target->load('createdBy');
+
+            // Audit logging
+            // 1. Role changed
+            if ($roleChanged && $newRole !== null) {
+                $this->auditService->log(
+                    AuditAction::UserRoleChanged,
+                    $target,
+                    ['role' => $oldRole instanceof Role ? $oldRole->value : $oldRole],
+                    ['role' => $newRole->value],
+                    $actor
+                );
+            }
+
+            // 2. Deactivated / Activated
+            if ($isDeactivating) {
+                $this->auditService->log(
+                    AuditAction::UserDeactivated,
+                    $target,
+                    ['is_active' => true],
+                    ['is_active' => false],
+                    $actor
+                );
+            } elseif ($isActivating) {
+                $this->auditService->log(
+                    AuditAction::UserActivated,
+                    $target,
+                    ['is_active' => false],
+                    ['is_active' => true],
+                    $actor
+                );
+            }
+
+            // 3. Password reset
+            if ($passwordReset) {
+                $this->auditService->log(
+                    AuditAction::UserPasswordReset,
+                    $target,
+                    null,
+                    ['password' => 'changed'],
+                    $actor
+                );
+            }
+
+            // 4. Other fields updated (e.g. name, email)
+            $generalOld = [];
+            $generalNew = [];
+            if (array_key_exists('name', $data) && $data['name'] !== $oldName) {
+                $generalOld['name'] = $oldName;
+                $generalNew['name'] = $target->name;
+            }
+            if (array_key_exists('email', $data) && $data['email'] !== $oldEmail) {
+                $generalOld['email'] = $oldEmail;
+                $generalNew['email'] = $target->email;
+            }
+            if (! empty($generalOld) || ! empty($generalNew)) {
+                $this->auditService->log(
+                    AuditAction::UserUpdated,
+                    $target,
+                    $generalOld,
+                    $generalNew,
+                    $actor
+                );
+            }
 
             return $target;
         });

@@ -28,6 +28,7 @@ import { DataTablePagination } from "./data-table-pagination";
 import {DataTableToolbar, SortOption} from "./data-table-toolbar";
 import { Button } from "@/components/core/Button";
 import TruncatedCell from "@/components/shared/data-table/truncated-cell";
+import { cn } from "@/lib/utils";
 
 
 type DataTableProps<TData, TValue> = {
@@ -51,6 +52,7 @@ type DataTableProps<TData, TValue> = {
     sortOptions?: SortOption[];
     renderCustomFilter?: () => React.ReactNode;
     onRowAction?: (action: string, row: TData) => void;
+    onRowClick?: (row: TData) => void;
     rowActions?: Array<{
         label: string;
         action: string;
@@ -84,6 +86,7 @@ export function DataTable<TData, TValue>({
                                              sortOptions,
                                              renderCustomFilter,
                                              onRowAction,
+                                             onRowClick,
                                              rowActions = [],
                                              hideSearch,
                                          }: DataTableProps<TData, TValue>) {
@@ -95,7 +98,7 @@ export function DataTable<TData, TValue>({
         const cols = [...columns];
 
         // Add actions column if row actions are provided
-        if (onRowAction && rowActions.length > 0) {
+        if (rowActions.length > 0) {
             cols.push({
                 accessorKey: "actions",
                 header: "Actions",
@@ -121,11 +124,12 @@ export function DataTable<TData, TValue>({
                                         variant={action.variant || "outline"}
                                         disabled={isDisabled}
                                         aria-label={action.label}
-                                        onClick={() => {
+                                        onClick={(e) => {
+                                            e.stopPropagation();
                                             if (action?.onClick) {
                                                 action.onClick(row.original);
                                             } else {
-                                                onRowAction(action.action, row.original);
+                                                onRowAction?.(action.action, row.original);
                                             }
                                         }}
                                         size="sm"
@@ -267,8 +271,12 @@ export function DataTable<TData, TValue>({
                                 table.getRowModel().rows.map((row, index) => (
                                     <TableRow
                                         key={row.id}
-                                        className={index % 2 === 0 ? "bg-gray-100 dark:bg-gray-800/40" : ""}
+                                        className={cn(
+                                            index % 2 === 0 ? "bg-gray-100 dark:bg-gray-800/40" : "",
+                                            onRowClick && "cursor-pointer hover:bg-muted/60 transition-colors"
+                                        )}
                                         data-state={row.getIsSelected() && "selected"}
+                                        onClick={() => onRowClick?.(row.original)}
                                     >
                                         {row.getVisibleCells().map((cell, index) => {
                                             const content = flexRender(cell.column.columnDef.cell, cell.getContext());
@@ -279,6 +287,7 @@ export function DataTable<TData, TValue>({
                                                 <TableCell
                                                     className={`px-4 ${index === 0 && "pl-8!"} md:px-3 text-gray-500 text-sm`}
                                                     key={cell.id}
+                                                    onClick={isActionsColumn ? (e) => e.stopPropagation() : undefined}
                                                 >
                                                     {isActionsColumn || disableTruncate ? content : <TruncatedCell content={content} />}
                                                 </TableCell>

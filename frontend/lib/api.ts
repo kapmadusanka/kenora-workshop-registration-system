@@ -3,17 +3,20 @@ import type { ApiError } from "@/types";
 
 export class ApiException extends Error implements ApiError {
   status: number;
+  code?: string;
   errors?: Record<string, string[]>;
 
   constructor(
     status: number,
     message: string,
-    errors?: Record<string, string[]>
+    errors?: Record<string, string[]>,
+    code?: string
   ) {
     super(message);
     this.name = "ApiException";
     this.status = status;
     this.errors = errors;
+    this.code = code;
   }
 }
 
@@ -45,7 +48,8 @@ export async function apiFetch<T>(
   if (!res.ok) {
     const message = data?.message || "An unexpected API error occurred.";
     const errors = data?.errors;
-    throw new ApiException(res.status, message, errors);
+    const code = data?.code;
+    throw new ApiException(res.status, message, errors, code);
   }
 
   return data as T;

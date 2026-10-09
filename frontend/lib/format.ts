@@ -85,3 +85,35 @@ export function formatDateTimeLocal(dateStr: string | null | undefined): string 
     return "";
   }
 }
+
+/**
+ * Formats a Date object to local YYYY-MM-DD string.
+ */
+export function formatLocalDateString(d: Date): string {
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  const year = d.getFullYear();
+  const month = pad(d.getMonth() + 1);
+  const day = pad(d.getDate());
+  return `${year}-${month}-${day}`;
+}
+
+export function getTodayDateString(): string {
+  return formatLocalDateString(new Date());
+}
+
+/**
+ * Returns Monday to Sunday in user's local time as YYYY-MM-DD.
+ */
+export function getThisWeekDateRange(): { from: string; to: string } {
+  const now = new Date();
+  const dayOfWeek = now.getDay(); // 0 is Sunday, 1 is Monday, ...
+  const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + diffToMonday);
+  const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6);
+
+  return {
+    from: formatLocalDateString(monday),
+    to: formatLocalDateString(sunday),
+  };
+}
+

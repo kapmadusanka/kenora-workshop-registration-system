@@ -9,13 +9,7 @@ import { FormInput } from "@/components/shared/forms/form-input";
 import { FormSelect } from "@/components/shared/forms/form-select";
 import { WorkshopSchema, WorkshopFormData } from "@/features/admin/workshops/schemas/workshop-schema";
 import { Workshop } from "@/features/admin/workshops/types/workshops-types";
-
-const statusOptions = [
-  { label: "Draft", value: "draft" },
-  { label: "Open", value: "open" },
-  { label: "Cancelled", value: "cancelled" },
-  { label: "Completed", value: "completed" },
-];
+import type { ApiError } from "@/lib/api-client";
 
 const WorkshopForm = () => {
   const { opType, selectedItem, handleEdit, handleCreate } =
@@ -23,41 +17,88 @@ const WorkshopForm = () => {
   const { id } = selectedItem || {};
   const formRef = useRef<UseFormReturn<WorkshopFormData>>(null);
 
+  const isEdit = opType === OpType.Edit;
+  const currentStatus = selectedItem?.status;
+
+  // Allowed transitions:
+  // - draft -> open | cancelled
+  // - open -> cancelled | completed
+  // - cancelled/completed final = read-only
+  let statusOptions = [
+    { label: "Draft", value: "draft" },
+    { label: "Open", value: "open" },
+  ];
+
+  let isStatusDisabled = false;
+
+  if (isEdit) {
+    if (currentStatus === "draft") {
+      statusOptions = [
+        { label: "Draft", value: "draft" },
+        { label: "Open", value: "open" },
+        { label: "Cancelled", value: "cancelled" },
+      ];
+    } else if (currentStatus === "open") {
+      statusOptions = [
+        { label: "Open", value: "open" },
+        { label: "Cancelled", value: "cancelled" },
+        { label: "Completed", value: "completed" },
+      ];
+    } else if (currentStatus === "cancelled") {
+      statusOptions = [{ label: "Cancelled (Final)", value: "cancelled" }];
+      isStatusDisabled = true;
+    } else if (currentStatus === "completed") {
+      statusOptions = [{ label: "Completed (Final)", value: "completed" }];
+      isStatusDisabled = true;
+    }
+  }
+
   const onSubmit = async (data: WorkshopFormData) => {
     // Format dates to ISO strings if needed
     const startsAtIso = data.starts_at ? new Date(data.starts_at).toISOString() : "";
     const endsAtIso = data.ends_at ? new Date(data.ends_at).toISOString() : null;
 
-    if (id && opType === OpType.Edit) {
-      // In edit mode: backend ignores or rejects code change, so omit code or send unchanged
-      const updatePayload: Partial<Workshop> = {
-        title: data.title,
-        instructor: data.instructor,
-        starts_at: startsAtIso,
-        ends_at: endsAtIso,
-        location: data.location || null,
-        description: data.description || null,
-        capacity: Number(data.capacity),
-        status: data.status,
-      };
-      handleEdit?.({ id, ...updatePayload });
-    } else {
-      const createPayload: Partial<Workshop> = {
-        code: data.code.toUpperCase().trim(),
-        title: data.title,
-        instructor: data.instructor,
-        starts_at: startsAtIso,
-        ends_at: endsAtIso,
-        location: data.location || null,
-        description: data.description || null,
-        capacity: Number(data.capacity),
-        status: data.status,
-      };
-      handleCreate?.(createPayload);
+    try {
+      if (id && opType === OpType.Edit) {
+        const updatePayload: Partial<Workshop> = {
+          title: data.title,
+          instructor: data.instructor,
+          starts_at: startsAtIso,
+          ends_at: endsAtIso,
+          location: data.location || null,
+          description: data.description || null,
+          capacity: Number(data.capacity),
+          status: data.status,
+        };
+        await handleEdit?.({ id, ...updatePayload });
+      } else {
+        const createPayload: Partial<Workshop> = {
+          code: data.code.toUpperCase().trim(),
+          title: data.title,
+          instructor: data.instructor,
+          starts_at: startsAtIso,
+          ends_at: endsAtIso,
+          location: data.location || null,
+          description: data.description || null,
+          capacity: Number(data.capacity),
+          status: data.status,
+        };
+        await handleCreate?.(createPayload);
+      }
+    } catch (err: unknown) {
+      const apiErr = err as ApiError | undefined;
+      if (apiErr?.errors) {
+        Object.entries(apiErr.errors).forEach(([field, msgs]) => {
+          formRef.current?.setError(field as keyof WorkshopFormData, {
+            type: "server",
+            message: msgs?.[0],
+          });
+        });
+      }
     }
   };
 
-  const isEdit = opType === OpType.Edit;
+  const activeCount = selectedItem?.active_count ?? 0;
 
   return (
     <FormDialog
@@ -83,12 +124,19 @@ const WorkshopForm = () => {
           disabled={isEdit}
         />
 
-        <FormInput
-          name="capacity"
-          label="Capacity (Seats) *"
-          placeholder="e.g. 20"
-          type="number"
-        />
+        <div className="flex flex-col">
+          <FormInput
+            name="capacity"
+            label="Capacity (Seats) *"
+            placeholder="e.g. 20"
+            type="number"
+          />
+          {isEdit && (
+            <span className="text-[11px] text-muted-foreground mt-1">
+              {activeCount} attendees already registered
+            </span>
+          )}
+        </div>
       </div>
 
       <FormInput
@@ -108,6 +156,7 @@ const WorkshopForm = () => {
           name="status"
           label="Status *"
           options={statusOptions}
+          disabled={isStatusDisabled}
           placeholder="Select status"
         />
       </div>

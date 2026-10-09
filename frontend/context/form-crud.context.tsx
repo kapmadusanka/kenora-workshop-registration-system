@@ -11,8 +11,8 @@ export type FormCrudContextType<T> = {
     isUpdating: boolean;
     openForm: () => void;
     closeForm: () => void;
-    handleCreate: (data: Partial<T>) => void;
-    handleEdit: (data: Partial<T>) => void;
+    handleCreate: (data: Partial<T>) => Promise<unknown> | void;
+    handleEdit: (data: Partial<T>) => Promise<unknown> | void;
     setOpType?: (opType: OpType) => void;
     setSelectedItem?: (item: Partial<T> | null) => void;
     setOpen?: (open: boolean) => void;

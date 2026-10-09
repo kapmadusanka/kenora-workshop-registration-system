@@ -4,7 +4,8 @@ export type PermissionAction =
   | "create_users"
   | "edit_workshops"
   | "register_attendees"
-  | "view_workshops";
+  | "view_workshops"
+  | "audit.view";
 
 const PERMISSION_MATRIX: Record<PermissionAction, Record<Role, boolean>> = {
   create_users: {
@@ -26,6 +27,11 @@ const PERMISSION_MATRIX: Record<PermissionAction, Record<Role, boolean>> = {
     admin: false,
     manager: true,
     staff: true,
+  },
+  "audit.view": {
+    admin: true,
+    manager: false,
+    staff: false,
   },
 };
 

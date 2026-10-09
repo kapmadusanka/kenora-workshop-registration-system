@@ -3,17 +3,18 @@
 import * as React from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { ColumnDef } from "@tanstack/react-table";
-import { useFormCrudManager } from "@/hooks/use-form-crud";
 import { useDataTable } from "@/hooks/use-data-table";
 import { DataTable } from "@/components/shared/data-table/data-table";
-import { OpType } from "@/constants/common";
 import { EditIcon, EyeIcon, Plus } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { Button } from "@/components/core/Button";
 import { StatusBadge } from "@/components/core/StatusBadge";
-import { formatDateRange, formatDateTimeLocal } from "@/lib/format";
+import { SeatsBadge } from "@/components/core/SeatsBadge";
+import { formatDateRange } from "@/lib/format";
+import { can } from "@/lib/permissions";
+import { useSession } from "next-auth/react";
 import { Workshop } from "@/features/admin/workshops/types/workshops-types";
-import { WorkshopFormContainer } from "@/features/admin/workshops/components/workshops-form-container";
+import { WorkshopDialogForm } from "@/features/admin/workshops/components/workshop-dialog-form";
 import {
   WorkshopTableFilters,
   WorkshopFilterState,
@@ -23,6 +24,12 @@ export function WorkshopListTable() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const { data: session } = useSession();
+
+  const canEdit = can("edit_workshops", session?.user?.role);
+
+  const [formOpen, setFormOpen] = React.useState(false);
+  const [selectedWorkshop, setSelectedWorkshop] = React.useState<Workshop | null>(null);
 
   // Read initial filters from URL query string
   const [filters, setFilters] = React.useState<WorkshopFilterState>(() => ({
@@ -88,10 +95,10 @@ export function WorkshopListTable() {
     {
       accessorKey: "title",
       header: "Title",
-      minSize: 350,
+      minSize: 420,
       cell: ({ row }) => (
         <div className="flex flex-col">
-          <span className="font-semibold text-foreground leading-snug">
+          <span className="font-semibold text-foreground leading-snug text-sm">
             {row.original.title}
           </span>
           {row.original.description && (
@@ -135,26 +142,14 @@ export function WorkshopListTable() {
     {
       accessorKey: "seats_left",
       header: "Seats Available",
-      minSize: 130,
-      cell: ({ row }) => {
-        const capacity = row.original.capacity;
-        const seatsLeft =
-          row.original.seats_left ??
-          Math.max(0, capacity - (row.original.active_count ?? 0));
-        const isFull = row.original.is_full ?? seatsLeft === 0;
-
-        return (
-          <div className="flex items-center gap-2">
-            <span
-              className={`font-semibold text-sm ${
-                isFull ? "text-rose-600 font-bold" : "text-emerald-700"
-              }`}
-            >
-              {seatsLeft} / {capacity}
-            </span>
-          </div>
-        );
-      },
+      minSize: 140,
+      cell: ({ row }) => (
+        <SeatsBadge
+          seatsLeft={row.original.seats_left}
+          capacity={row.original.capacity}
+          isFull={row.original.is_full}
+        />
+      ),
     },
     {
       accessorKey: "status",
@@ -169,22 +164,6 @@ export function WorkshopListTable() {
     },
   ];
 
-  const crud = useFormCrudManager<Workshop>({
-    endpoint: {
-      create: "/workshops",
-      common: "/workshops",
-      edit: "/workshops",
-    },
-    updateMethod: "patch",
-    queryKey: "workshops",
-    extraInvalidationKeys: [["workshops-list"]],
-    transformInitialData: (data: Workshop) => ({
-      ...data,
-      starts_at: formatDateTimeLocal(data.starts_at),
-      ends_at: formatDateTimeLocal(data.ends_at),
-    }),
-  });
-
   const {
     globalFilter,
     setGlobalFilter,
@@ -195,6 +174,7 @@ export function WorkshopListTable() {
     totalRecords,
     sorting,
     setSorting,
+    refetch,
   } = useDataTable<Workshop>({
     endpoint: "/workshops",
     queryKey: ["workshops-list"],
@@ -216,17 +196,22 @@ export function WorkshopListTable() {
         title="Workshops"
         subtitle="Manage upcoming workshops, seat capacity, and schedules"
         actions={
-          <div className="flex items-center gap-3">
-            <Button
-              onClick={() => crud.onAddNew()}
-              variant="primary"
-              size="sm"
-              className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2"
-            >
-              <Plus className="h-4 w-4" />
-              <span>Add Workshop</span>
-            </Button>
-          </div>
+          canEdit ? (
+            <div className="flex items-center gap-3">
+              <Button
+                onClick={() => {
+                  setSelectedWorkshop(null);
+                  setFormOpen(true);
+                }}
+                variant="primary"
+                size="sm"
+                className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2"
+              >
+                <Plus className="h-4 w-4" />
+                <span>Add Workshop</span>
+              </Button>
+            </div>
+          ) : undefined
         }
       />
 
@@ -254,6 +239,7 @@ export function WorkshopListTable() {
         setPagination={setPagination}
         sorting={sorting}
         setSorting={setSorting}
+        onRowClick={(row) => router.push(`/workshops/${row.id}`)}
         renderCustomFilter={() => (
           <WorkshopTableFilters
             filters={filters}
@@ -261,22 +247,38 @@ export function WorkshopListTable() {
             onReset={handleResetFilters}
           />
         )}
-        onRowAction={crud.onRowAction}
         rowActions={[
           {
             label: "View",
-            action: OpType.View,
+            action: "view",
             icon: <EyeIcon size={15} />,
+            onClick: (row) => router.push(`/workshops/${row.id}`),
           },
-          {
-            label: "Edit",
-            action: OpType.Edit,
-            icon: <EditIcon size={15} />,
-          },
+          ...(canEdit
+            ? [
+                {
+                  label: "Edit",
+                  action: "edit",
+                  icon: <EditIcon size={15} />,
+                  onClick: (row: Workshop) => {
+                    setSelectedWorkshop(row);
+                    setFormOpen(true);
+                  },
+                },
+              ]
+            : []),
         ]}
       />
 
-      <WorkshopFormContainer crud={crud} />
+      <WorkshopDialogForm
+        open={formOpen}
+        workshop={selectedWorkshop}
+        onClose={() => {
+          setFormOpen(false);
+          setSelectedWorkshop(null);
+        }}
+        onSuccess={() => void refetch()}
+      />
     </>
   );
 }

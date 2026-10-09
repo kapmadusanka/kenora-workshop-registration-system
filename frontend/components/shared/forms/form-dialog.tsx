@@ -186,6 +186,7 @@ export function FormDialog<TSchema extends FieldValues>({
                     type="submit"
                     form={formId}
                     disabled={isLoading}
+                    className={"bg-primary"}
                     isLoading={isSubmitting ?? (isUpdating || isCreating)}
                   >
                     {buttonLabel}

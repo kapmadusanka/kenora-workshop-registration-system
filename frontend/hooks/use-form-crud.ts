@@ -251,27 +251,27 @@ export const useFormCrudManager = <
       });
   };
 
-  const handleEdit = (data: Partial<T>) => {
+  const handleEdit = async (data: Partial<T>): Promise<T | undefined> => {
     if (!selectedItem) return;
-    updateRecord
-      .mutateAsync(data)
-      .then(() => {
-        setOpenFormPopup(false);
-      })
-      .catch((err: unknown) => {
-        console.error("[useFormCrudManager] handleEdit failed:", err);
-      });
+    try {
+      const res = await updateRecord.mutateAsync(data);
+      setOpenFormPopup(false);
+      return res;
+    } catch (err: unknown) {
+      console.error("[useFormCrudManager] handleEdit failed:", err);
+      throw err;
+    }
   };
 
-  const handleCreate = (data: Partial<T>) => {
-    createRecord
-      .mutateAsync(data)
-      .then(() => {
-        setOpenFormPopup(false);
-      })
-      .catch((err: unknown) => {
-        console.error("[useFormCrudManager] handleCreate failed:", err);
-      });
+  const handleCreate = async (data: Partial<T>): Promise<T> => {
+    try {
+      const res = await createRecord.mutateAsync(data);
+      setOpenFormPopup(false);
+      return res;
+    } catch (err: unknown) {
+      console.error("[useFormCrudManager] handleCreate failed:", err);
+      throw err;
+    }
   };
 
   const onAddNew = () => {
@@ -281,20 +281,23 @@ export const useFormCrudManager = <
   };
 
   // Sync initialData when the fetched record or selected item changes.
-  // Includes transformInitialData as a dependency to avoid stale closures.
+  // Store transformInitialData in a ref to avoid infinite re-render loops from inline arrow functions.
+  const transformRef = React.useRef(options.transformInitialData);
+  useEffect(() => {
+    transformRef.current = options.transformInitialData;
+  });
+
   useEffect(() => {
     if (opTypeState !== OpType.Add) {
       let data: Partial<T> = getById.data ?? selectedItem ?? {};
-      if (getById.data && options.transformInitialData) {
-        data = options.transformInitialData(getById.data as T);
+      if (getById.data && transformRef.current) {
+        data = transformRef.current(getById.data as T);
       }
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setInitialData(data);
     } else {
       setInitialData({});
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [getById.data, opTypeState, selectedItem, options.transformInitialData]);
+  }, [getById.data, opTypeState, selectedItem]);
 
   return {
     data: getById.data,

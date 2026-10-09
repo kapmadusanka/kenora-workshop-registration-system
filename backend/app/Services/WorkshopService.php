@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Enums\AuditAction;
 use App\Enums\WorkshopStatus;
 use App\Models\User;
 use App\Models\Workshop;
@@ -15,6 +16,10 @@ use Illuminate\Validation\ValidationException;
 
 class WorkshopService
 {
+    public function __construct(
+        private readonly AuditService $auditService
+    ) {}
+
     /**
      * List workshops with filters, pagination, and active_count eager loaded.
      *
@@ -53,9 +58,9 @@ class WorkshopService
             $escaped = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], (string) $filters['q']);
             $pattern = "%{$escaped}%";
             $query->where(function (Builder $sub) use ($pattern) {
-                $sub->whereRaw("code LIKE ? ESCAPE '\\'", [$pattern])
-                    ->orWhereRaw("title LIKE ? ESCAPE '\\'", [$pattern])
-                    ->orWhereRaw("instructor LIKE ? ESCAPE '\\'", [$pattern]);
+                $sub->where('code', 'LIKE', $pattern)
+                    ->orWhere('title', 'LIKE', $pattern)
+                    ->orWhere('instructor', 'LIKE', $pattern);
             });
         }
 
@@ -91,20 +96,31 @@ class WorkshopService
      */
     public function create(array $data, User $user): Workshop
     {
-        $data['created_by'] = $user->id;
+        return DB::transaction(function () use ($data, $user): Workshop {
+            $data['created_by'] = $user->id;
 
-        if (empty($data['status'])) {
-            $data['status'] = WorkshopStatus::Draft;
-        }
+            if (empty($data['status'])) {
+                $data['status'] = WorkshopStatus::Draft;
+            }
 
-        /** @var Workshop $workshop */
-        $workshop = Workshop::create($data);
+            /** @var Workshop $workshop */
+            $workshop = Workshop::create($data);
 
-        // TODO audit: record workshop creation via AuditService
+            $this->auditService->log(
+                AuditAction::WorkshopCreated,
+                $workshop,
+                null,
+                $workshop->only([
+                    'code', 'title', 'description', 'instructor',
+                    'starts_at', 'duration_minutes', 'capacity', 'status', 'created_by',
+                ]),
+                $user
+            );
 
-        return $workshop->loadCount([
-            'registrations as active_count' => fn (Builder $q) => $q->where('status', 'active'),
-        ]);
+            return $workshop->loadCount([
+                'registrations as active_count' => fn (Builder $q) => $q->where('status', 'active'),
+            ]);
+        });
     }
 
     /**
@@ -114,25 +130,43 @@ class WorkshopService
      */
     public function update(Workshop $workshop, array $data, User $user): Workshop
     {
-        return DB::transaction(function () use ($workshop, $data, $user) {
+        return DB::transaction(function () use ($workshop, $data, $user): Workshop {
             /** @var Workshop $locked */
             $locked = Workshop::where('id', $workshop->id)->lockForUpdate()->firstOrFail();
 
+            $oldStatus = $locked->status;
+            $oldCapacity = (int) $locked->capacity;
+            $oldAttributes = [
+                'title' => $locked->title,
+                'description' => $locked->description,
+                'instructor' => $locked->instructor,
+                'starts_at' => $locked->starts_at ? Carbon::parse($locked->starts_at)->toISOString() : null,
+                'duration_minutes' => (int) $locked->duration_minutes,
+            ];
+
             // Status transition check
+            $statusChanged = false;
+            $targetStatus = null;
             if (isset($data['status'])) {
                 $targetStatus = $data['status'] instanceof WorkshopStatus
                     ? $data['status']
                     : WorkshopStatus::from((string) $data['status']);
 
-                $currentStatus = $locked->status;
-                if ($targetStatus !== $currentStatus) {
-                    $this->validateStatusTransition($currentStatus, $targetStatus);
+                if ($targetStatus !== $oldStatus) {
+                    $this->validateStatusTransition($oldStatus, $targetStatus);
+                    $statusChanged = true;
                 }
             }
 
             // Race-safe capacity check against active registrations
+            $capacityChanged = false;
+            $newCapacity = null;
             if (isset($data['capacity'])) {
                 $newCapacity = (int) $data['capacity'];
+                if ($newCapacity !== $oldCapacity) {
+                    $capacityChanged = true;
+                }
+
                 $activeCount = $locked->registrations()
                     ->where('status', 'active')
                     ->count();
@@ -150,7 +184,52 @@ class WorkshopService
 
             $locked->update($data);
 
-            // TODO audit: record workshop update via AuditService
+            // Audit logging
+            // 1. Status changed
+            if ($statusChanged && $targetStatus !== null) {
+                $this->auditService->log(
+                    AuditAction::WorkshopStatusChanged,
+                    $locked,
+                    ['status' => $oldStatus->value],
+                    ['status' => $targetStatus->value],
+                    $user
+                );
+            }
+
+            // 2. Capacity changed
+            if ($capacityChanged && $newCapacity !== null) {
+                $this->auditService->log(
+                    AuditAction::WorkshopCapacityChanged,
+                    $locked,
+                    ['capacity' => $oldCapacity],
+                    ['capacity' => $newCapacity],
+                    $user
+                );
+            }
+
+            // 3. Other fields updated
+            $generalOld = [];
+            $generalNew = [];
+            foreach (['title', 'description', 'instructor', 'duration_minutes'] as $field) {
+                if (array_key_exists($field, $data)) {
+                    $generalOld[$field] = $oldAttributes[$field];
+                    $generalNew[$field] = $locked->{$field};
+                }
+            }
+            if (array_key_exists('starts_at', $data)) {
+                $generalOld['starts_at'] = $oldAttributes['starts_at'];
+                $generalNew['starts_at'] = $locked->starts_at ? Carbon::parse($locked->starts_at)->toISOString() : null;
+            }
+
+            if (! empty($generalOld) || ! empty($generalNew)) {
+                $this->auditService->log(
+                    AuditAction::WorkshopUpdated,
+                    $locked,
+                    $generalOld,
+                    $generalNew,
+                    $user
+                );
+            }
 
             return $locked->loadCount([
                 'registrations as active_count' => fn (Builder $q) => $q->where('status', 'active'),
