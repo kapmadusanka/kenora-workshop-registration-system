@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\RegistrationController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\WorkshopController;
 use Illuminate\Support\Facades\Route;
@@ -33,4 +34,10 @@ Route::middleware(['auth:sanctum', 'active'])->group(function (): void {
         Route::post('/workshops', [WorkshopController::class, 'store']);
         Route::patch('/workshops/{workshop}', [WorkshopController::class, 'update']);
     });
+});
+
+Route::middleware(['auth:sanctum', 'active', 'role:manager,staff'])->group(function (): void {
+    Route::post('/workshops/{workshop}/registrations', [RegistrationController::class, 'store']);
+    Route::get('/workshops/{workshop}/registrations', [RegistrationController::class, 'index']);
+    Route::post('/registrations/{registration}/cancel', [RegistrationController::class, 'cancel']);
 });

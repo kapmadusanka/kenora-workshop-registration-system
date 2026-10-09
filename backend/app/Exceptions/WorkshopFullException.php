@@ -9,7 +9,13 @@ use Symfony\Component\HttpFoundation\Response;
 
 class WorkshopFullException extends Exception
 {
-    protected $code = Response::HTTP_CONFLICT;
+    public function __construct(string $message = 'This workshop is full. No seats are left.')
+    {
+        parent::__construct($message, Response::HTTP_CONFLICT);
+    }
 
-    protected $message = 'Workshop is full.';
+    public function getErrorCode(): string
+    {
+        return 'workshop_full';
+    }
 }

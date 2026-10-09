@@ -1,14 +1,14 @@
 import { useEffect, useState } from "react";
 import { SortingState } from "@tanstack/react-table";
 import { useQuery } from "@tanstack/react-query";
-import {apiClient} from "@/lib/api-client";
+import { apiClient } from "@/lib/api-client";
 
 interface ColumnFilters {
   id: string;
   value: string | number | boolean;
 }
 
-interface UseDataTableOptions<TData> {
+interface UseDataTableOptions {
   endpoint: string;
   queryKey: string[];
   defaultSort?: {
@@ -17,6 +17,7 @@ interface UseDataTableOptions<TData> {
   };
   loading?: boolean;
   idKey?: string;
+  extraParams?: Record<string, unknown>;
 }
 
 interface PaginationState {
@@ -25,19 +26,21 @@ interface PaginationState {
 }
 
 interface PaginatedResponse<T> {
-  success: boolean;
+  success?: boolean;
   message?: string;
   data: T[] | T;
-  page: number;
-  pageSize: number;
-  totalPages: number;
-  /**
-   * The total number of records across all pages. The API may return this
-   * directly as `totalRecords`, or nested under `paginationData.total`.
-   * Both shapes are normalized here so callers get a consistent value.
-   */
-  totalRecords: number;
-  // Legacy & backend response shapes for pagination metadata
+  page?: number;
+  pageSize?: number;
+  totalPages?: number;
+  totalRecords?: number;
+  meta?: {
+    current_page?: number;
+    from?: number | null;
+    last_page?: number;
+    per_page?: number;
+    to?: number | null;
+    total?: number;
+  };
   paginationData?: {
     total?: number;
     totalCount?: number;
@@ -51,7 +54,8 @@ export function useDataTable<TData>({
   endpoint,
   queryKey,
   defaultSort,
-}: UseDataTableOptions<TData>) {
+  extraParams,
+}: UseDataTableOptions) {
   const [pagination, setPagination] = useState<PaginationState>({
     pageIndex: 0,
     pageSize: 10,
@@ -68,7 +72,7 @@ export function useDataTable<TData>({
   const { data, isLoading, isError, error, refetch, isFetching } = useQuery<
     PaginatedResponse<TData>
   >({
-    queryKey: [...queryKey, pagination, sorting, columnFilters, globalFilter],
+    queryKey: [...queryKey, pagination, sorting, columnFilters, globalFilter, extraParams],
     queryFn: async () => {
       const filterParams = columnFilters.reduce(
         (acc, filter) => {
@@ -78,56 +82,78 @@ export function useDataTable<TData>({
         {} as Record<string, string | number | boolean>
       );
 
+      const sortParam = sorting.length
+        ? (sorting[0].desc ? `-${sorting[0].id}` : sorting[0].id)
+        : null;
+
+      const params: Record<string, unknown> = {
+        page: pagination.pageIndex + 1,
+        per_page: pagination.pageSize,
+        pageSize: pagination.pageSize,
+        sort: sortParam,
+        sortBy: sorting.length ? sorting[0].id : null,
+        sortDirection: sorting.length
+          ? sorting[0].desc
+            ? "desc"
+            : "asc"
+          : null,
+        q: globalFilter || undefined,
+        search: globalFilter || undefined,
+        ...filterParams,
+        ...extraParams,
+      };
+
+      // Clean undefined or empty string params
+      Object.keys(params).forEach((key) => {
+        if (params[key] === undefined || params[key] === "") {
+          delete params[key];
+        }
+      });
+
       const response = await apiClient.get<PaginatedResponse<TData>>(endpoint, {
-        params: {
-          page: pagination.pageIndex + 1,
-          pageSize: pagination.pageSize,
-          sortBy: sorting.length ? sorting[0].id : null,
-          sortDirection: sorting.length
-            ? sorting[0].desc
-              ? "desc"
-              : "asc"
-            : null,
-          search: globalFilter || undefined,
-          ...filterParams,
-        },
+        params,
       });
 
       const raw = response.data;
 
-      // Normalize the total records field — the API may return it directly
-      // as `totalRecords` (preferred) or nested under `paginationData.total`
-      // (legacy). Either way we surface it as `totalRecords` for consumers.
+      // Normalize total records across Laravel API resources, legacy pagination, and direct values
       const totalRecords =
         raw.totalRecords ??
+        raw.meta?.total ??
         raw.paginationData?.total ??
-        0;
+        (Array.isArray(raw.data) ? raw.data.length : 0);
 
       return { ...raw, totalRecords };
     },
     enabled: !!endpoint,
   });
 
-  // Auto-correct the page index when records are deleted and the current
-  // page becomes empty (e.g. the last page with 1 record gets deleted).
+  // Auto-correct page index when records are removed and current page exceeds total
   useEffect(() => {
     if (
       data?.totalRecords !== undefined &&
       data.totalRecords <= pagination.pageIndex * pagination.pageSize &&
       pagination.pageIndex > 0
     ) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setPagination((prev) => ({
         ...prev,
         pageIndex: Math.max(
-          Math.ceil(data.totalRecords / pagination.pageSize) - 1,
+          Math.ceil((data.totalRecords ?? 0) / pagination.pageSize) - 1,
           0
         ),
       }));
     }
   }, [data?.totalRecords, pagination.pageIndex, pagination.pageSize]);
 
+  const recordList = (Array.isArray(data?.data)
+    ? data.data
+    : Array.isArray(data)
+    ? data
+    : []) as TData[];
+
   return {
-    data: data?.data as TData[],
+    data: recordList,
     totalRecords: data?.totalRecords ?? 0,
     isLoading,
     isError,

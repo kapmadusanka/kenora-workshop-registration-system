@@ -37,7 +37,7 @@ function FormBaseInner<T extends z.ZodTypeAny>(
   }, [defaultValues, schema]);
 
   const form = useForm<z.infer<T>>({
-    resolver: zodResolver(schema),
+    resolver: zodResolver(schema as unknown as Parameters<typeof zodResolver>[0]),
     defaultValues: computedDefaultValues,
     mode,
   });

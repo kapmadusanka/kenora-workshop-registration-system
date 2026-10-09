@@ -9,7 +9,13 @@ use Symfony\Component\HttpFoundation\Response;
 
 class WorkshopNotOpenException extends Exception
 {
-    protected $code = Response::HTTP_CONFLICT;
+    public function __construct(string $message = 'This workshop is not open for registration.')
+    {
+        parent::__construct($message, Response::HTTP_CONFLICT);
+    }
 
-    protected $message = 'Workshop is not open for registration.';
+    public function getErrorCode(): string
+    {
+        return 'workshop_not_open';
+    }
 }

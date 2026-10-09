@@ -1,8 +1,6 @@
 import { redirect } from "next/navigation";
-import { Calendar } from "lucide-react";
 import { auth } from "@/auth";
-import { uiMessages } from "@/lib/messages";
-import {WorkshopListTable} from "@/features/admin/workshops/components/workshops-list-table";
+import { WorkshopListTable } from "@/features/admin/workshops/components/workshops-list-table";
 
 export const instant = false;
 

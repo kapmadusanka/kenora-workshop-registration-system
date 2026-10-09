@@ -18,6 +18,7 @@ type EndpointMap = {
 type UseFormCrudManagerProps<T> = {
   queryKey: string;
   endpoint: EndpointMap;
+  updateMethod?: "put" | "patch";
   transformInitialData?: (data: T) => T;
   extraInvalidationKeys?: Array<unknown[]>;
   extraRemoveQueriesKeys?: Array<unknown[]>;
@@ -47,6 +48,7 @@ export const useFormCrudManager = <
   const {
     queryKey,
     endpoint,
+    updateMethod = "patch",
     extraInvalidationKeys = [],
     extraRemoveQueriesKeys = [],
     useFormData = false,
@@ -68,7 +70,7 @@ export const useFormCrudManager = <
     }
     const response = await apiClient.get(`${endpointToUse}/${selectedItem?.id}`);
     if (response.status !== 200) throw new Error("Error fetching data");
-    return response.data?.data;
+    return response.data?.data ?? response.data;
   };
 
   const fetchCreate = async (data: Partial<T>): Promise<T> => {
@@ -83,7 +85,7 @@ export const useFormCrudManager = <
     if (response.status !== 201 && response.status !== 200) {
       throw new Error("Error creating data");
     }
-    return response.data;
+    return response.data?.data ?? response.data;
   };
 
   const fetchUpdate = async (data: Partial<T>): Promise<T> => {
@@ -94,12 +96,12 @@ export const useFormCrudManager = <
       );
     }
     const payload = preparePayload(data);
-    const response = await apiClient.put(
-      `${endpointToUse}/${selectedItem?.id}`,
-      payload
-    );
+    const response =
+      updateMethod === "patch"
+        ? await apiClient.patch(`${endpointToUse}/${selectedItem?.id}`, payload)
+        : await apiClient.put(`${endpointToUse}/${selectedItem?.id}`, payload);
     if (response.status !== 200) throw new Error("Error updating data");
-    return response.data;
+    return response.data?.data ?? response.data;
   };
 
   const fetchDelete = async (): Promise<T> => {
@@ -286,6 +288,7 @@ export const useFormCrudManager = <
       if (getById.data && options.transformInitialData) {
         data = options.transformInitialData(getById.data as T);
       }
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setInitialData(data);
     } else {
       setInitialData({});
