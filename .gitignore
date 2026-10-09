@@ -50,3 +50,4 @@ docker-compose.override.yml
 /backend/storage/*.key
 /backend/bootstrap/cache/*.php
 !/backend/bootstrap/cache/.gitignore
+/.agent/
